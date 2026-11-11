@@ -1,0 +1,150 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bank-dataops
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bank-dataops
+  template:
+    metadata:
+      labels:
+        app: bank-dataops
+        app.kubernetes.io/part-of: bank-marketing
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      containers:
+      - name: dataops
+        image: bank-dataops:1.0.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -m
+        - app.flow
+        env:
+        - name: PREFECT_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: PREFECT_API_URL
+        - name: DATA_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: DATA_DIR
+        - name: REPORT_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: REPORT_DIR
+        - name: MPLBACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MPLBACKEND
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: bank-secrets
+              key: DATABASE_URL
+        - name: PREFECT_SERVER_ALLOW_EPHEMERAL_MODE
+          value: 'false'
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: reports
+          mountPath: /reports
+      volumes:
+      - name: data
+        hostPath:
+          path: /mnt/bank-dataops/data
+          type: Directory
+      - name: reports
+        hostPath:
+          path: /mnt/bank-dataops/reports
+          type: Directory
+      - name: bootstrap
+        configMap:
+          name: bank-bootstrap
+      initContainers:
+      - name: wait-for-services
+        image: bank-dataops:1.0.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - /bootstrap/wait.py
+        env:
+        - name: PREFECT_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: PREFECT_API_URL
+        - name: DATA_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: DATA_DIR
+        - name: REPORT_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: REPORT_DIR
+        - name: MPLBACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MPLBACKEND
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: bank-secrets
+              key: DATABASE_URL
+        - name: PREFECT_SERVER_ALLOW_EPHEMERAL_MODE
+          value: 'false'
+        volumeMounts:
+        - name: bootstrap
+          mountPath: /bootstrap
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: '2'
+            memory: 256Mi
+      - name: prepare-directories
+        image: bank-dataops:1.0.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - /bootstrap/prepare.py
+        - dataops
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: reports
+          mountPath: /reports
+        - name: bootstrap
+          mountPath: /bootstrap
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: '2'
+            memory: 128Mi

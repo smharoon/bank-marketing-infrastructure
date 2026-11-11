@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bank-mlflow
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+spec:
+  type: ClusterIP
+  selector:
+    app: bank-mlflow
+  ports:
+  - name: tcp
+    port: 5000
+    targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bank-mlflow
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bank-mlflow
+  template:
+    metadata:
+      labels:
+        app: bank-mlflow
+        app.kubernetes.io/part-of: bank-marketing
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      containers:
+      - name: mlflow
+        image: ghcr.io/mlflow/mlflow:v3.6.0
+        command:
+        - mlflow
+        - server
+        args:
+        - --host
+        - 0.0.0.0
+        - --port
+        - '5000'
+        - --backend-store-uri
+        - sqlite:////mlflow-data/mlflow.db
+        - --serve-artifacts
+        - --artifacts-destination
+        - /mlflow-data/artifacts
+        - --allowed-hosts
+        - localhost:5000,127.0.0.1:5000,bank-mlflow:5000,bank-mlflow.bank-marketing:5000,bank-mlflow.bank-marketing.svc:5000,bank-mlflow.bank-marketing.svc.cluster.local:5000
+        ports:
+        - name: http
+          containerPort: 5000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+        volumeMounts:
+        - name: data
+          mountPath: /mlflow-data
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mlflow-data

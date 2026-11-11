@@ -1,0 +1,167 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bank-mlops-evaluate
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bank-mlops-evaluate
+  template:
+    metadata:
+      labels:
+        app: bank-mlops-evaluate
+        app.kubernetes.io/part-of: bank-marketing
+        bank-storage-group: mlops
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      containers:
+      - name: mlops-evaluate
+        image: bank-mlops:1.0.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -m
+        - app.evaluate_flow
+        env:
+        - name: PREFECT_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: PREFECT_API_URL
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MLFLOW_TRACKING_URI
+        - name: MLOPS_DATA_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MLOPS_DATA_DIR
+        - name: MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MODEL_NAME
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: bank-secrets
+              key: DATABASE_URL
+        - name: PREFECT_SERVER_ALLOW_EPHEMERAL_MODE
+          value: 'false'
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        volumeMounts:
+        - name: train-data
+          mountPath: /mlops/train_model
+        - name: evaluation-data
+          mountPath: /mlops/evaluate_model
+        - name: outputs
+          mountPath: /mlops/outputs
+      volumes:
+      - name: train-data
+        hostPath:
+          path: /mnt/bank-mlops/train_model
+          type: Directory
+      - name: evaluation-data
+        hostPath:
+          path: /mnt/bank-mlops/evaluate_model
+          type: Directory
+      - name: outputs
+        hostPath:
+          path: /mnt/bank-mlops/outputs
+          type: Directory
+      - name: bootstrap
+        configMap:
+          name: bank-bootstrap
+      initContainers:
+      - name: wait-for-services
+        image: bank-mlops:1.0.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - /bootstrap/wait.py
+        - --mlflow
+        env:
+        - name: PREFECT_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: PREFECT_API_URL
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MLFLOW_TRACKING_URI
+        - name: MLOPS_DATA_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MLOPS_DATA_DIR
+        - name: MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: MODEL_NAME
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: bank-secrets
+              key: DATABASE_URL
+        - name: PREFECT_SERVER_ALLOW_EPHEMERAL_MODE
+          value: 'false'
+        volumeMounts:
+        - name: bootstrap
+          mountPath: /bootstrap
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: '2'
+            memory: 256Mi
+      - name: prepare-directories
+        image: bank-mlops:1.0.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - /bootstrap/prepare.py
+        - mlops
+        volumeMounts:
+        - name: train-data
+          mountPath: /mlops/train_model
+        - name: evaluation-data
+          mountPath: /mlops/evaluate_model
+        - name: outputs
+          mountPath: /mlops/outputs
+        - name: bootstrap
+          mountPath: /bootstrap
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: '2'
+            memory: 128Mi
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                bank-storage-group: mlops
+            topologyKey: kubernetes.io/hostname

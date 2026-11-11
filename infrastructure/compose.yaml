@@ -1,0 +1,79 @@
+
+name: bank-infra
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    networks:
+      bank-network:
+        aliases:
+          - bank-postgres
+
+  prefect:
+    image: prefecthq/prefect:3-latest
+    restart: unless-stopped
+    command: prefect server start --host 0.0.0.0
+
+    environment:
+      PREFECT_HOME: /root/.prefect
+      PREFECT_SERVER_UI_API_URL: http://localhost:4200/api
+
+    ports:
+      - "4200:4200"
+
+    volumes:
+      - prefect_data:/root/.prefect
+
+    networks:
+      bank-network:
+        aliases:
+          - bank-prefect
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.6.0
+    restart: unless-stopped
+
+    command: >-
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow-data/mlflow.db
+      --artifacts-destination /mlflow-data/artifacts
+      --allowed-hosts localhost:5000,127.0.0.1:5000,bank-mlflow:5000
+
+    ports:
+      - "127.0.0.1:5000:5000"
+
+    volumes:
+      - mlflow_data:/mlflow-data
+
+    networks:
+      bank-network:
+        aliases:
+          - bank-mlflow
+
+volumes:
+  postgres_data:
+    name: bank-postgres-data
+
+  prefect_data:
+    name: bank-prefect-data
+
+  mlflow_data:
+    name: bank-mlflow-data
+
+networks:
+  bank-network:
+    name: bank-network
+    driver: bridge
+

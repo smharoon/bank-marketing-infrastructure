@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bank-prefect
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+spec:
+  type: ClusterIP
+  selector:
+    app: bank-prefect
+  ports:
+  - name: tcp
+    port: 4200
+    targetPort: 4200
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bank-prefect
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bank-prefect
+  template:
+    metadata:
+      labels:
+        app: bank-prefect
+        app.kubernetes.io/part-of: bank-marketing
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      containers:
+      - name: prefect
+        image: prefecthq/prefect:3-latest
+        command:
+        - prefect
+        - server
+        - start
+        - --host
+        - 0.0.0.0
+        ports:
+        - name: http
+          containerPort: 4200
+        env:
+        - name: PREFECT_HOME
+          value: /root/.prefect
+        - name: PREFECT_API_DATABASE_CONNECTION_URL
+          value: sqlite+aiosqlite:////root/.prefect/prefect.db
+        - name: PREFECT_SERVER_UI_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bank-config
+              key: PREFECT_SERVER_UI_API_URL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: '2'
+            memory: 2Gi
+        volumeMounts:
+        - name: data
+          mountPath: /root/.prefect
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: 4200
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 90
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 4200
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 4200
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: prefect-data

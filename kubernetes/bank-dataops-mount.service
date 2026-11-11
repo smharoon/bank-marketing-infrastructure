@@ -1,0 +1,11 @@
+[Unit]
+Description=Share local Bank DataOps folders with Minikube
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/minikube -p minikube mount --uid=1000 --gid=1000 %h/Downloads/scalable_system_assignment/bank_dataops:/mnt/bank-dataops
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

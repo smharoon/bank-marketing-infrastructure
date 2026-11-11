@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bank-config
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+data:
+  POSTGRES_USER: bank
+  POSTGRES_DB: bank_data
+  PREFECT_API_URL: http://bank-prefect:4200/api
+  MLFLOW_TRACKING_URI: http://bank-mlflow:5000
+  DATA_DIR: /data
+  REPORT_DIR: /reports
+  MLOPS_DATA_DIR: /mlops
+  MODEL_NAME: bank-marketing-best-model
+  MPLBACKEND: Agg
+  PREFECT_SERVER_UI_API_URL: http://localhost:4200/api
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bank-bootstrap
+  namespace: bank-marketing
+  labels:
+    app.kubernetes.io/part-of: bank-marketing
+data:
+  wait.py: |
+    import os
+    import sys
+    import time
+    from urllib.request import urlopen
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(os.environ["DATABASE_URL"], connect_args={"connect_timeout": 5})
+    urls = [os.environ["PREFECT_API_URL"].rstrip("/") + "/health"]
+    if "--mlflow" in sys.argv:
+        urls.append(os.environ["MLFLOW_TRACKING_URI"].rstrip("/") + "/health")
+    for attempt in range(120):
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            for url in urls:
+                with urlopen(url, timeout=5) as response:
+                    if response.status != 200:
+                        raise RuntimeError("Dependency is not healthy")
+            engine.dispose()
+            print("Dependencies are ready", flush=True)
+            break
+        except Exception:
+            # Do not print connection exceptions: they may include credentials.
+            print(f"Waiting for dependencies ({attempt + 1}/120)", flush=True)
+            time.sleep(5)
+    else:
+        raise SystemExit("Dependencies did not become ready")
+  prepare.py: |
+    from pathlib import Path
+    import sys
+
+    if sys.argv[1] == "dataops":
+        paths = ["/data/incoming", "/data/processing", "/data/archive", "/data/failed", "/reports"]
+    else:
+        paths = ["/mlops/" + p for p in (
+            "train_model/incoming", "train_model/processed", "train_model/failed",
+            "evaluate_model/incoming", "evaluate_model/processed", "evaluate_model/failed", "outputs")]
+    for path in paths:
+        Path(path).mkdir(parents=True, exist_ok=True)
